@@ -26,44 +26,30 @@ if 'echo_monitor_data' not in st.session_state:
 
 def login(email, password):
     try:
+        # Make a POST request to obtain the token
         response = requests.post(f"{API_URL}/token", data={"username": email, "password": password})
         
-        # Print out the raw response for debugging
-        st.write(f"Raw response: {response.text}")
-        
+        # Check if the response status code is 401 (Unauthorized)
         if response.status_code == 401:
             st.error("Invalid credentials. Please check your email and password.")
             return False
         
+        # Raise any other HTTP error (e.g., 500 Server Error)
         response.raise_for_status()
 
-        try:
-            token_data = response.json()
-        except json.JSONDecodeError:
-            st.error(f"Failed to parse JSON response. Status code: {response.status_code}, Content: {response.text}")
-            return False
-
-        if "access_token" not in token_data:
-            st.error(f"Access token not found in response. Response content: {token_data}")
-            return False
-
+        # If successful, extract the token
+        token_data = response.json()
         st.session_state.token = token_data["access_token"]
 
+        # Get the current user's information
         user_response = requests.get(f"{API_URL}/users/me", headers={"Authorization": f"Bearer {st.session_state.token}"})
         user_response.raise_for_status()
         
-        try:
-            user_data = user_response.json()
-        except json.JSONDecodeError:
-            st.error(f"Failed to parse JSON from user data. Status code: {user_response.status_code}, Content: {user_response.text}")
-            return False
-
-        if "role" not in user_data:
-            st.error(f"User role not found in response. Response content: {user_data}")
-            return False
-
+        # Extract user role and store it in session state
+        user_data = user_response.json()
         st.session_state.user_role = user_data["role"]
 
+        # Return True if login is successful
         return True
 
     except requests.exceptions.ConnectionError:
@@ -71,7 +57,7 @@ def login(email, password):
         return False
 
     except requests.exceptions.RequestException as e:
-        st.error(f"An error occurred during the request: {str(e)}")
+        st.error(f"An error occurred: {str(e)}")
         return False
 
 def register(email, password, role):
