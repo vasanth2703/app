@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
-from scikit.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler
 import pandas as pd
 
 class ECGModel(nn.Module):
