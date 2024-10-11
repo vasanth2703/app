@@ -243,7 +243,7 @@ async def predict(file: UploadFile = File(...)):
 
 @app.get("/")
 async def root():
-    return {"message": "ECG Analysis API is running. Use /predict endpoint to analyze ECG data."}s
+    return {"message": "ECG Analysis API is running. Use /predict endpoint to analyze ECG data."}
 
 # Add some sample data
 def add_sample_data(db: Session):
