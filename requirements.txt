@@ -12,7 +12,7 @@ numpy
 torch
 torchvision
 matplotlib
-sklearn
+
 scikit-learn
 python-multipart
 
