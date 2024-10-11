@@ -1,5 +1,14 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+jose
+passlib
+numpy
+torch
+scikit-learn
+matplotlib
 streamlit
 requests
 pandas
 plotly
-numpy
