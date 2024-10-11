@@ -11,3 +11,4 @@ plotly
 numpy
 torch
 torchvision
+matplotlib
