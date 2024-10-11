@@ -7,7 +7,7 @@ import numpy as np
 import io
 import base64
 
- API_URL ="https://my-app-app-3opetubrnxatm4hggpjsjc.streamlit.app/"  # Adjust the domain as needed  # Update this if your API is hosted elsewhere
+API_URL = "https://my-app-app-3opetubrnxatm4hggpjsjc.streamlit.app/"  # Adjust the domain as needed
 
 # Initialize session state
 if 'token' not in st.session_state:
@@ -25,38 +25,29 @@ if 'echo_monitor_data' not in st.session_state:
 
 def login(email, password):
     try:
-        # Make a POST request to obtain the token
         response = requests.post(f"{API_URL}/token", data={"username": email, "password": password})
         
-        # Check if the response status code is 401 (Unauthorized)
         if response.status_code == 401:
             st.error("Invalid credentials. Please check your email and password.")
             return False
         
-        # Raise any other HTTP error (e.g., 500 Server Error)
         response.raise_for_status()
 
-        # If successful, extract the token
         token_data = response.json()
         st.session_state.token = token_data["access_token"]
 
-        # Get the current user's information
         user_response = requests.get(f"{API_URL}/users/me", headers={"Authorization": f"Bearer {st.session_state.token}"})
         user_response.raise_for_status()
         
-        # Extract user role and store it in session state
         user_data = user_response.json()
         st.session_state.user_role = user_data["role"]
 
-        # Return True if login is successful
         return True
 
-    # Handle connection errors (e.g., API server down or incorrect URL)
     except requests.exceptions.ConnectionError:
         st.error("Failed to connect to the API server. Please check your connection or try again later.")
         return False
 
-    # Handle other request-related exceptions
     except requests.exceptions.RequestException as e:
         st.error(f"An error occurred: {str(e)}")
         return False
@@ -192,16 +183,13 @@ def main():
             logout()
             st.rerun()
 
-        # Alert
         st.warning(
             "Alert: " + 
             ("Your heart rate is elevated." if st.session_state.user_role == "client" else "Patient alert: Elevated heart rate detected.")
         )
 
-        # Tabs for different functionalities
         tab1, tab2, tab3, tab4 = st.tabs(["Health Monitor", "Doctor Network", "File Upload", "Chat"])
 
-        # Health Monitor Tab
         with tab1:
             st.header("Health Monitor")
             if st.button("Connect Device"):
@@ -213,7 +201,6 @@ def main():
                     st.metric("Current Heart Rate", f"{st.session_state.current_heart_rate} bpm")
                     st.write(f"ECG Analysis: {st.session_state.ecg_data}")
                     
-                    # Fetch and display heart rate data
                     health_data = get_health_data()
                     if health_data:
                         df = pd.DataFrame(health_data)
@@ -231,7 +218,6 @@ def main():
             else:
                 st.warning("Please connect your device")
 
-        # Doctor Network Tab
         with tab2:
             st.header("Doctor Network")
             doctors = get_doctors()
@@ -250,13 +236,10 @@ def main():
                     if st.button(f"Book Appointment", key=doctor['id']):
                         st.success(f"Appointment request sent to {doctor['name']}")
 
-        # File Upload Tab
         with tab3:
-
             st.header("File Upload")
             file_type = st.selectbox("File Type", ["echo", "ecg", "xray", "image", "video", "report"])
             
-            # Define file types based on the selected file type
             if file_type == "ecg":
                 allowed_types = ["csv", "txt"]
             elif file_type in ["image", "xray"]:
@@ -301,7 +284,6 @@ def main():
                     elif response['verifiedBy']:
                         st.info(f"Verified by: {response['verifiedBy']}")
 
-        # Chat Tab
         with tab4:
             st.header("Chat")
             messages = get_chat_messages()
@@ -318,4 +300,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
