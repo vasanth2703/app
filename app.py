@@ -7,7 +7,7 @@ import numpy as np
 import io
 import base64
 
-API_URL = "http://localhost:8000"  # Update this if your API is hosted elsewhere
+ API_URL = "https://my-app-app-dgystgeacapp2rabrmxgk.herokuapp.com"  # Adjust the domain as needed  # Update this if your API is hosted elsewhere
 
 # Initialize session state
 if 'token' not in st.session_state:
