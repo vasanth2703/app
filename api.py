@@ -13,11 +13,22 @@ import torch
 from pydantic import BaseModel
 import sys
 import os
+from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import JSONResponse
+import pandas as pd
+import io
+from ecg import ECGModel, predict_ecg, generate_report
 
 
 # Add the directory containing ecg.py to the Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from ecg import ECGModel, predict_ecg, generate_report
+
+
+app = FastAPI()
+
+# Load the model (you might want to adjust the path)
+model_path = "ecg_model.pth"
+model = ECGModel(input_channels=3, num_classes=2)
 
 # Add this new Pydantic model
 class ECGData(BaseModel):
@@ -192,7 +203,7 @@ async def get_health_data(current_user: User = Depends(get_current_user), db: Se
 # Add this new endpoint after the existing routes
 @app.post("/analyze-ecg")
 async def analyze_ecg(ecg_data: ECGData, current_user: User = Depends(get_current_user)):
-    model_path = r"F:\ecg_model.pth"  # Update this path to where your model is stored
+    model_path = r"\ecg_model.pth"  # Update this path to where your model is stored
     model = ECGModel(input_channels=3, num_classes=2)
     model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
     model.eval()
@@ -202,6 +213,37 @@ async def analyze_ecg(ecg_data: ECGData, current_user: User = Depends(get_curren
     report = generate_report(prediction, confidence, ecg_np)
 
     return {"prediction": prediction, "confidence": confidence, "report": report}
+
+app.post("/predict")
+async def predict(file: UploadFile = File(...)):
+    # Read the uploaded file
+    contents = await file.read()
+    
+    try:
+        # Convert the CSV content to a pandas DataFrame
+        df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
+        
+        # Convert DataFrame to numpy array
+        ecg_data = df.values
+        
+        # Ensure the data has 3 channels
+        if ecg_data.shape[1] != 3:
+            return JSONResponse(content={"error": "CSV should have exactly 3 columns for ECG channels."}, status_code=400)
+        
+        # Make prediction
+        prediction, confidence = predict_ecg(model, ecg_data)
+        
+        # Generate report
+        report = generate_report(prediction, confidence, ecg_data)
+        
+        return JSONResponse(content={"prediction": prediction, "confidence": confidence, "report": report})
+    
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.get("/")
+async def root():
+    return {"message": "ECG Analysis API is running. Use /predict endpoint to analyze ECG data."}s
 
 # Add some sample data
 def add_sample_data(db: Session):
