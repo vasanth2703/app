@@ -6,8 +6,9 @@ from datetime import datetime, timedelta
 import numpy as np
 import io
 import base64
+import json
 
-API_URL = "https://my-app-app-3opetubrnxatm4hggpjsjc.streamlit.app/"  # Adjust the domain as needed
+API_URL = "https://my-app-app-3opetubrnxatm4hggpjsjc.streamlit.app/"   # Adjust the domain as needed
 
 # Initialize session state
 if 'token' not in st.session_state:
@@ -27,19 +28,40 @@ def login(email, password):
     try:
         response = requests.post(f"{API_URL}/token", data={"username": email, "password": password})
         
+        # Print out the raw response for debugging
+        st.write(f"Raw response: {response.text}")
+        
         if response.status_code == 401:
             st.error("Invalid credentials. Please check your email and password.")
             return False
         
         response.raise_for_status()
 
-        token_data = response.json()
+        try:
+            token_data = response.json()
+        except json.JSONDecodeError:
+            st.error(f"Failed to parse JSON response. Status code: {response.status_code}, Content: {response.text}")
+            return False
+
+        if "access_token" not in token_data:
+            st.error(f"Access token not found in response. Response content: {token_data}")
+            return False
+
         st.session_state.token = token_data["access_token"]
 
         user_response = requests.get(f"{API_URL}/users/me", headers={"Authorization": f"Bearer {st.session_state.token}"})
         user_response.raise_for_status()
         
-        user_data = user_response.json()
+        try:
+            user_data = user_response.json()
+        except json.JSONDecodeError:
+            st.error(f"Failed to parse JSON from user data. Status code: {user_response.status_code}, Content: {user_response.text}")
+            return False
+
+        if "role" not in user_data:
+            st.error(f"User role not found in response. Response content: {user_data}")
+            return False
+
         st.session_state.user_role = user_data["role"]
 
         return True
@@ -49,7 +71,7 @@ def login(email, password):
         return False
 
     except requests.exceptions.RequestException as e:
-        st.error(f"An error occurred: {str(e)}")
+        st.error(f"An error occurred during the request: {str(e)}")
         return False
 
 def register(email, password, role):
