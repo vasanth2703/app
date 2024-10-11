@@ -8,7 +8,7 @@ import io
 import base64
 import json
 
-API_URL = "https://my-app-app-3opetubrnxatm4hggpjsjc.streamlit.app/"   # Adjust the domain as needed
+API_URL = "https://my-app-app-3opetubrnxatm4hggpjsjc.streamlit.app"   # Adjust the domain as needed
 
 # Initialize session state
 if 'token' not in st.session_state:
