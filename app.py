@@ -6,9 +6,8 @@ from datetime import datetime, timedelta
 import numpy as np
 import io
 import base64
-import json
 
-API_URL = "https://my-app-app-3opetubrnxatm4hggpjsjc.streamlit.app"   # Adjust the domain as needed
+API_URL = "https://fastapi-app-yyxx.onrender.com"  # Updated API URL
 
 # Initialize session state
 if 'token' not in st.session_state:
@@ -23,6 +22,7 @@ if 'ecg_data' not in st.session_state:
     st.session_state.ecg_data = None
 if 'echo_monitor_data' not in st.session_state:
     st.session_state.echo_monitor_data = None
+
 
 def login(email, password):
     try:
