@@ -14,5 +14,5 @@ torchvision
 matplotlib
 scikit-learn
 python-multipart
-scikit
+
 
