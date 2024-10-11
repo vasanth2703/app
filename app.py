@@ -7,7 +7,7 @@ import numpy as np
 import io
 import base64
 
- API_URL = "https://my-app-app-3opetubrnxatm4hggpjsjc.streamlit.app/"  # Adjust the domain as needed  # Update this if your API is hosted elsewhere
+ API_URL ="https://my-app-app-3opetubrnxatm4hggpjsjc.streamlit.app/"  # Adjust the domain as needed  # Update this if your API is hosted elsewhere
 
 # Initialize session state
 if 'token' not in st.session_state:
