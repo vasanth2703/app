@@ -2,13 +2,10 @@ fastapi
 uvicorn
 sqlalchemy
 pydantic
-jose
-passlib
-numpy
-torch
-scikit-learn
-matplotlib
+python-jose[cryptography]
+passlib[bcrypt]
 streamlit
 requests
 pandas
 plotly
+numpy
