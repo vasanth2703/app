@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+# main.py (FastAPI backend)
+
+from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import create_engine, Column, Integer, String, Float
 from sqlalchemy.ext.declarative import declarative_base
@@ -7,35 +9,28 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-import random
+import pandas as pd
 import numpy as np
 import torch
-from pydantic import BaseModel
-import sys
-import os
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
-import pandas as pd
-import io
 from ecg import ECGModel, predict_ecg, generate_report
+import io
+import random
+from fastapi.middleware.cors import CORSMiddleware
 
-
-# Add the directory containing ecg.py to the Python path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-
+# FastAPI setup
 app = FastAPI()
 
-# Load the model (you might want to adjust the path)
-model_path = "ecg_model.pth"
-model = ECGModel(input_channels=3, num_classes=2)
-
-# Add this new Pydantic model
-class ECGData(BaseModel):
-    data: list[list[float]]
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 # Database setup
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+SQLALCHEMY_DATABASE_URL = "sqlite:///./heart_health.db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -54,6 +49,10 @@ class Doctor(Base):
     name = Column(String)
     specialty = Column(String)
     rating = Column(Float)
+    is_verified = Column(Integer)
+    distance = Column(String)
+    cases = Column(Integer)
+    patients = Column(Integer)
 
 class HealthData(Base):
     __tablename__ = "health_data"
@@ -61,6 +60,15 @@ class HealthData(Base):
     user_id = Column(Integer)
     date = Column(String)
     heart_rate = Column(Integer)
+
+class Post(Base):
+    __tablename__ = "posts"
+    id = Column(Integer, primary_key=True, index=True)
+    author = Column(String)
+    content = Column(String)
+    likes = Column(Integer)
+    comments = Column(Integer)
+    type = Column(String)
 
 Base.metadata.create_all(bind=engine)
 
@@ -78,14 +86,16 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+class ECGData(BaseModel):
+    data: list[list[float]]
+
+# Security setup
 SECRET_KEY = "your-secret-key"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-app = FastAPI()
 
 # Helper functions
 def get_db():
@@ -138,7 +148,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         raise credentials_exception
     return user
 
-# Routes
+# FastAPI routes
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = authenticate_user(db, form_data.username, form_data.password)
@@ -154,22 +164,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-# Add this new endpoint after the existing routes
-
 @app.post("/register", response_model=UserOut)
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = get_user(db, email=user.email)
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    hashed_password = get_password_hash(user.password)
-    new_user = User(email=user.email, hashed_password=hashed_password, role=user.role)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return UserOut(email=new_user.email, role=new_user.role)
-
-@app.post("/users", response_model=UserOut)
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
     db_user = get_user(db, email=user.email)
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -191,19 +187,33 @@ async def get_doctors(current_user: User = Depends(get_current_user), db: Sessio
 
 @app.get("/health-data")
 async def get_health_data(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    # For simplicity, we're generating random health data here
-    # In a real application, you'd fetch this from the database
-    data = []
-    for i in range(30):
-        date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-        heart_rate = random.randint(60, 100)
-        data.append({"date": date, "heart_rate": heart_rate})
+    data = db.query(HealthData).filter(HealthData.user_id == current_user.id).all()
     return data
 
-# Add this new endpoint after the existing routes
+@app.post("/health-data")
+async def add_health_data(heart_rate: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    new_data = HealthData(user_id=current_user.id, date=datetime.now().strftime("%Y-%m-%d"), heart_rate=heart_rate)
+    db.add(new_data)
+    db.commit()
+    db.refresh(new_data)
+    return {"message": "Health data added successfully"}
+
+@app.get("/posts")
+async def get_posts(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    posts = db.query(Post).all()
+    return posts
+
+@app.post("/posts")
+async def create_post(content: str, post_type: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    new_post = Post(author=current_user.email, content=content, likes=0, comments=0, type=post_type)
+    db.add(new_post)
+    db.commit()
+    db.refresh(new_post)
+    return {"message": "Post created successfully"}
+
 @app.post("/analyze-ecg")
 async def analyze_ecg(ecg_data: ECGData, current_user: User = Depends(get_current_user)):
-    model_path = r"\ecg_model.pth"  # Update this path to where your model is stored
+    model_path = "ecg_model.pth"
     model = ECGModel(input_channels=3, num_classes=2)
     model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
     model.eval()
@@ -214,38 +224,31 @@ async def analyze_ecg(ecg_data: ECGData, current_user: User = Depends(get_curren
 
     return {"prediction": prediction, "confidence": confidence, "report": report}
 
-app.post("/predict")
-async def predict(file: UploadFile = File(...)):
-    # Read the uploaded file
+@app.post("/predict")
+async def predict(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     contents = await file.read()
     
     try:
-        # Convert the CSV content to a pandas DataFrame
         df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
-        
-        # Convert DataFrame to numpy array
         ecg_data = df.values
         
-        # Ensure the data has 3 channels
         if ecg_data.shape[1] != 3:
-            return JSONResponse(content={"error": "CSV should have exactly 3 columns for ECG channels."}, status_code=400)
+            return {"error": "CSV should have exactly 3 columns for ECG channels."}
         
-        # Make prediction
+        model_path = "ecg_model.pth"
+        model = ECGModel(input_channels=3, num_classes=2)
+        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+        model.eval()
+        
         prediction, confidence = predict_ecg(model, ecg_data)
-        
-        # Generate report
         report = generate_report(prediction, confidence, ecg_data)
         
-        return JSONResponse(content={"prediction": prediction, "confidence": confidence, "report": report})
+        return {"prediction": prediction, "confidence": confidence, "report": report}
     
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        return {"error": str(e)}
 
-@app.get("/")
-async def root():
-    return {"message": "ECG Analysis API is running. Use /predict endpoint to analyze ECG data."}
-
-# Add some sample data
+# Add sample data
 def add_sample_data(db: Session):
     # Add a sample user
     if not get_user(db, "user@example.com"):
@@ -256,11 +259,21 @@ def add_sample_data(db: Session):
     # Add some sample doctors
     if db.query(Doctor).count() == 0:
         doctors = [
-            Doctor(name="Dr. Smith", specialty="Cardiology", rating=4.5),
-            Doctor(name="Dr. Johnson", specialty="Internal Medicine", rating=4.2),
-            Doctor(name="Dr. Williams", specialty="Pediatrics", rating=4.8),
+            Doctor(name="Dr. Smith", specialty="Cardiology", rating=4.5, is_verified=1, distance="2.5 miles", cases=150, patients=500),
+            Doctor(name="Dr. Johnson", specialty="Internal Medicine", rating=4.2, is_verified=1, distance="3.7 miles", cases=200, patients=600),
+            Doctor(name="Dr. Williams", specialty="Pediatrics", rating=4.8, is_verified=1, distance="1.8 miles", cases=180, patients=550),
         ]
         db.add_all(doctors)
+
+    # Add some sample posts
+    if db.query(Post).count() == 0:
+        posts = [
+            Post(author="Dr. Smith", content="New research on heart health...", likes=15, comments=3, type="text"),
+            Post(author="Dr. Johnson", content="Tips for maintaining a healthy heart...", likes=20, comments=5, type="text"),
+            Post(author="Dr. Williams", content="https://example.com/heart-health-article", likes=30, comments=8, type="article"),
+            Post(author="Dr. Smith", content="https://example.com/heart-health-video", likes=25, comments=6, type="video"),
+        ]
+        db.add_all(posts)
 
     db.commit()
 
