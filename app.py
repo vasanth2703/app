@@ -1,310 +1,333 @@
+# app.py (Streamlit frontend)
+
 import streamlit as st
 import requests
 import pandas as pd
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import numpy as np
-import io
-import base64
+import plotly.graph_objects as go
 
-API_URL = "https://fastapi-app-yyxx.onrender.com"  # Updated API URL
+# Set page config
+st.set_page_config(page_title="Heart Health Dashboard", layout="wide")
+
+# Define API URL
+API_URL = "https://fastapi-app-yyxx.onrender.com"
 
 # Initialize session state
-if 'token' not in st.session_state:
-    st.session_state.token = None
-if 'user_role' not in st.session_state:
-    st.session_state.user_role = None
-if 'connected' not in st.session_state:
-    st.session_state.connected = False
-if 'current_heart_rate' not in st.session_state:
-    st.session_state.current_heart_rate = None
-if 'ecg_data' not in st.session_state:
-    st.session_state.ecg_data = None
-if 'echo_monitor_data' not in st.session_state:
-    st.session_state.echo_monitor_data = None
+if 'user_type' not in st.session_state:
+    st.session_state.user_type = None
+if 'is_signed_in' not in st.session_state:
+    st.session_state.is_signed_in = False
+if 'access_token' not in st.session_state:
+    st.session_state.access_token = None
+if 'chat_messages' not in st.session_state:
+    st.session_state.chat_messages = []
+if 'echoMonitorData' not in st.session_state:
+    st.session_state.echoMonitorData = []
+if 'ai_responses' not in st.session_state:
+    st.session_state.ai_responses = []
 
-
-def login(email, password):
-    try:
-        # Make a POST request to obtain the token
-        response = requests.post(f"{API_URL}/token", data={"username": email, "password": password})
-        
-        # Check if the response status code is 401 (Unauthorized)
-        if response.status_code == 401:
-            st.error("Invalid credentials. Please check your email and password.")
-            return False
-        
-        # Raise any other HTTP error (e.g., 500 Server Error)
-        response.raise_for_status()
-
-        # If successful, extract the token
+def sign_in(email, password):
+    response = requests.post(
+        f"{API_URL}/token",
+        data={"username": email, "password": password}
+    )
+    if response.status_code == 200:
         token_data = response.json()
-        st.session_state.token = token_data["access_token"]
-
-        # Get the current user's information
-        user_response = requests.get(f"{API_URL}/users/me", headers={"Authorization": f"Bearer {st.session_state.token}"})
-        user_response.raise_for_status()
-        
-        # Extract user role and store it in session state
-        user_data = user_response.json()
-        st.session_state.user_role = user_data["role"]
-
-        # Return True if login is successful
+        st.session_state.access_token = token_data["access_token"]
+        st.session_state.is_signed_in = True
+        user_response = requests.get(
+            f"{API_URL}/users/me",
+            headers={"Authorization": f"Bearer {st.session_state.access_token}"}
+        )
+        if user_response.status_code == 200:
+            user_data = user_response.json()
+            st.session_state.user_type = user_data["role"]
         return True
+    return False
 
-    except requests.exceptions.ConnectionError:
-        st.error("Failed to connect to the API server. Please check your connection or try again later.")
-        return False
+def sign_out():
+    st.session_state.is_signed_in = False
+    st.session_state.user_type = None
+    st.session_state.access_token = None
 
-    except requests.exceptions.RequestException as e:
-        st.error(f"An error occurred: {str(e)}")
-        return False
-
-def register(email, password, role):
+def register_user(email, password, role):
     try:
         response = requests.post(
             f"{API_URL}/register",
             json={"email": email, "password": password, "role": role}
         )
-        if response.status_code == 400:
-            st.error("Email already registered. Please use a different email.")
-            return False
-        response.raise_for_status()
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+        st.success("Registration successful. Please sign in.")
         return True
     except requests.exceptions.RequestException as e:
-        st.error(f"An error occurred during registration: {str(e)}")
+        st.error(f"Registration failed. Error: {str(e)}")
+        if hasattr(e, 'response') and e.response is not None:
+            st.error(f"Response content: {e.response.text}")
         return False
-
-def logout():
-    st.session_state.token = None
-    st.session_state.user_role = None
-    st.session_state.connected = False
-    st.session_state.current_heart_rate = None
-    st.session_state.ecg_data = None
-    st.session_state.echo_monitor_data = None
-
+    
 def get_doctors():
-    response = requests.get(f"{API_URL}/doctors", headers={"Authorization": f"Bearer {st.session_state.token}"})
-    if response.status_code == 200:
+    try:
+        response = requests.get(
+            f"{API_URL}/doctors",
+            headers={"Authorization": f"Bearer {st.session_state.access_token}"}
+        )
+        response.raise_for_status()
         return response.json()
-    return []
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to get doctors: {str(e)}")
+        return []
 
-def get_ai_responses():
-    response = requests.get(f"{API_URL}/ai-responses", headers={"Authorization": f"Bearer {st.session_state.token}"})
-    if response.status_code == 200:
+
+
+
+def get_network_posts():
+    try:
+        response = requests.get(
+            f"{API_URL}/posts",
+            headers={"Authorization": f"Bearer {st.session_state.access_token}"}
+        )
+        response.raise_for_status()
         return response.json()
-    return []
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to get posts: {str(e)}")
+        return []
 
-def verify_ai_response(response_id, doctor_id, comment):
-    response = requests.post(
-        f"{API_URL}/verify-ai-response",
-        json={"response_id": response_id, "doctor_id": doctor_id, "comment": comment},
-        headers={"Authorization": f"Bearer {st.session_state.token}"}
-    )
-    if response.status_code == 200:
-        st.success("AI response verified successfully")
-    else:
-        st.error("Failed to verify AI response")
+def create_post(content, post_type):
+    try:
+        response = requests.post(
+            f"{API_URL}/posts",
+            json={"content": content, "post_type": post_type},
+            headers={"Authorization": f"Bearer {st.session_state.access_token}"}
+        )
+        response.raise_for_status()
+        st.success("Post created successfully")
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to create post: {str(e)}")
 
-def get_chat_messages():
-    response = requests.get(f"{API_URL}/chat-messages", headers={"Authorization": f"Bearer {st.session_state.token}"})
-    if response.status_code == 200:
+
+def analyze_file(file, file_type):
+    try:
+        files = {"file": file}
+        response = requests.post(
+            f"{API_URL}/analyze",
+            files=files,
+            data={"file_type": file_type},
+            headers={"Authorization": f"Bearer {st.session_state.access_token}"}
+        )
+        response.raise_for_status()
         return response.json()
-    return []
-
-def send_message(content):
-    response = requests.post(
-        f"{API_URL}/send-message",
-        json={"content": content},
-        headers={"Authorization": f"Bearer {st.session_state.token}"}
-    )
-    if response.status_code == 200:
-        st.success("Message sent successfully")
-    else:
-        st.error("Failed to send message")
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to analyze file: {str(e)}")
+        return {"error": "Failed to analyze file"}
+    
+def add_health_data(heart_rate):
+    try:
+        response = requests.post(
+            f"{API_URL}/health-data",
+            json={"heart_rate": heart_rate},
+            headers={"Authorization": f"Bearer {st.session_state.access_token}"}
+        )
+        response.raise_for_status()
+        st.success(f"Heart rate {heart_rate} bpm submitted successfully")
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to add health data: {str(e)}")
 
 def get_health_data():
-    response = requests.get(f"{API_URL}/health-data", headers={"Authorization": f"Bearer {st.session_state.token}"})
-    if response.status_code == 200:
+    try:
+        response = requests.get(
+            f"{API_URL}/health-data",
+            headers={"Authorization": f"Bearer {st.session_state.access_token}"}
+        )
+        response.raise_for_status()
         return response.json()
-    return []
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to get health data: {str(e)}")
+        return []
 
-def connect_device():
-    st.session_state.connected = True
-    if st.session_state.user_role == "client":
-        st.session_state.current_heart_rate = 75  # Simulated heart rate
-        st.session_state.ecg_data = "Normal sinus rhythm detected"
-    else:
-        st.session_state.echo_monitor_data = "Real-time echo data: Normal left ventricular function, no valvular abnormalities detected."
-
-def analyze_ecg(file):
-    content = file.getvalue()
-    ecg_data = np.genfromtxt(io.StringIO(content.decode('utf-8')), delimiter=',')
-    file_extension = file.name.split('.')[-1].lower()
+def display_health_monitor():
+    st.header("Health Monitor")
     
-    if file_extension == 'csv':
-        ecg_data = pd.read_csv(io.StringIO(content.decode('utf-8')), header=None).values
-    else:  # Assume it's a text file with comma-separated values
-        ecg_data = np.genfromtxt(io.StringIO(content.decode('utf-8')), delimiter=',')
+    if st.session_state.user_type == "Client":
+        # Display wearable device connection for clients
+        st.subheader("Wearable Device Connection")
+        if st.button("Connect to Wearable Device"):
+            st.success("Connected to wearable device")
         
-    response = requests.post(
-        f"{API_URL}/analyze-ecg",
-        json={"data": ecg_data.tolist()},
-        headers={"Authorization": f"Bearer {st.session_state.token}"}
-    )
+        # Display current heart rate
+        current_heart_rate = st.number_input("Enter your current heart rate (bpm)", min_value=40, max_value=200, value=70)
+        if st.button("Submit Heart Rate"):
+            add_health_data(current_heart_rate)
+            st.success(f"Heart rate {current_heart_rate} bpm submitted successfully")
+
+
+        # Fetch and display health data history
+        health_data =  [
+            {"date": "2023-01-01", "heart_rate": 72},
+            {"date": "2023-01-02", "heart_rate": 75},
+            {"date": "2023-01-03", "heart_rate": 70},
+        ]
+        if health_data:
+            df = pd.DataFrame(health_data)
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.sort_values('date')
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df['date'], y=df['heart_rate'], mode='lines+markers', name='Heart Rate'))
+            fig.update_layout(title='Heart Rate History', xaxis_title='Date', yaxis_title='Heart Rate (bpm)')
+            st.plotly_chart(fig)
+        else:
+            st.write("No health data available.")
     
-    if response.status_code == 200:
-        result = response.json()
-        st.success("ECG analyzed successfully")
-        st.write(f"Prediction: {result['prediction']}")
-        st.write(f"Confidence: {result['confidence']:.2f}")
-        st.text(result['report'])
-    else:
-        st.error("Failed to analyze ECG")
-
-def main():
-    st.set_page_config(page_title="Heart Health Dashboard", layout="wide")
-    st.title("Heart Health Dashboard")
-
-    if not st.session_state.token:
-        tab1, tab2 = st.tabs(["Login", "Register"])
+    elif st.session_state.user_type == "Doctor/Technician":
+        # Display Echo Monitor for doctors/technicians
+        st.subheader("Echo Monitor")
+        if st.button("Connect to Echo Device"):
+            st.success("Connected to echo device")
+            # Simulate receiving echo data
+            st.session_state.echoMonitorData = [
+                {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "data": "Echo data 1"},
+                {"timestamp": (datetime.now() + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S"), "data": "Echo data 2"},
+            ]
         
-        with tab1:
-            st.subheader("Login")
-            email = st.text_input("Email", key="login_email")
-            password = st.text_input("Password", type="password", key="login_password")
-            if st.button("Login"):
-                if login(email, password):
-                    st.success("Logged in successfully!")
+        # Display echo data
+        if st.session_state.echoMonitorData:
+            for echo_data in st.session_state.echoMonitorData:
+                st.write(f"{echo_data['timestamp']}: {echo_data['data']}")
+            
+            # AI-generated real-time echo report
+            if st.button("Generate Echo Report"):
+                st.success("AI-generated Echo Report:")
+                st.write("Patient shows normal cardiac function with no significant abnormalities detected.")
+        else:
+            st.write("No echo data available. Please connect to the echo device.")
+
+def display_network():
+    st.header("Heart Health Network")
+    
+    # Create a new post
+    new_post = st.text_area("Share your thoughts or experience")
+    post_type = st.selectbox("Post type", ["Text", "Article", "Video"])
+    if st.button("Post"):
+        create_post(new_post, post_type.lower())
+        st.success("Post created successfully!")
+
+    # Display existing posts
+    posts = get_network_posts()
+    for post in posts:
+        st.subheader(f"{post['author']} - {post['type'].capitalize()}")
+        st.write(post['content'])
+        col1, col2 = st.columns(2)
+        col1.write(f"❤️ {post['likes']} Likes")
+        col2.write(f"💬 {post['comments']} Comments")
+        st.write("---")
+
+def display_file_upload():
+    st.header("AI Analysis")
+    
+    file_type = st.selectbox("Select file type", ["Image", "Video", "Report"])
+    uploaded_file = st.file_uploader(f"Upload {file_type}", type=["png", "jpg", "mp4", "pdf", "txt"])
+    
+    if uploaded_file is not None and st.button("Analyze"):
+        analysis_result = analyze_file(uploaded_file, file_type.lower())
+        if "error" not in analysis_result:
+            st.session_state.ai_responses.append({
+                "file_name": uploaded_file.name,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "file_type": file_type,
+                "response": analysis_result['report'],
+                "verified_by": None
+            })
+            st.success("File analyzed successfully!")
+        else:
+            st.error(analysis_result['error'])
+    
+    # Display AI response history
+    st.subheader("AI Response History")
+    # Display AI response history
+    st.subheader("AI Response History")
+    for idx, response in enumerate(st.session_state.ai_responses):
+        with st.expander(f"{response['file_name']} - {response['timestamp']}"):
+            st.write(f"File Type: {response['file_type']}")
+            st.write(response['response'])
+            if response['verified_by']:
+                st.write(f"✅ Verified by Dr. {response['verified_by']}")
+            else:
+                verify_doctor = st.selectbox("Select a doctor to verify", ["Dr. Smith", "Dr. Johnson", "Dr. Williams"], key=f"verify_doctor_{idx}")
+                if st.button("Verify Response", key=f"verify_button_{idx}"):
+                    response['verified_by'] = verify_doctor
+                    st.success(f"Response verified by {verify_doctor}")
                     st.rerun()
-        
-        with tab2:
-            st.subheader("Register")
-            reg_email = st.text_input("Email", key="reg_email")
-            reg_password = st.text_input("Password", type="password", key="reg_password")
-            reg_role = st.radio("User Type", ["client", "doctor"])
-            if st.button("Register"):
-                if register(reg_email, reg_password, reg_role):
-                    st.success("Registered successfully! You can now log in.")
-    else:
-        if st.sidebar.button("Logout"):
-            logout()
+def display_chat():
+    st.header("Chat")
+    
+    for message in st.session_state.chat_messages:
+        if message['sender'] == "You":
+            st.text_input("You:", value=message['content'], key=f"msg_{message['timestamp']}", disabled=True)
+        else:
+            st.text_area(message['sender'], value=message['content'], key=f"msg_{message['timestamp']}", disabled=True)
+
+    new_message = st.text_input("Type your message...")
+    if st.button("Send"):
+        if new_message:
+            st.session_state.chat_messages.append({
+                "sender": "You",
+                "content": new_message,
+                "timestamp": datetime.now().strftime("%I:%M %p")
+            })
+            # Here you would typically send the message to the backend and get a response
+            # For now, we'll just simulate a response
+            st.session_state.chat_messages.append({
+                "sender": "Dr. Smith",
+                "content": "Thank you for your message. I'll review it and get back to you soon.",
+                "timestamp": datetime.now().strftime("%I:%M %p")
+            })
             st.rerun()
 
-        st.warning(
-            "Alert: " + 
-            ("Your heart rate is elevated." if st.session_state.user_role == "client" else "Patient alert: Elevated heart rate detected.")
-        )
+def main():
+    st.title("All About Heart Health")
+    
+    if not st.session_state.is_signed_in:
+        tab1, tab2 = st.tabs(["Sign In", "Register"])
+        
+        with tab1:
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            if st.button("Sign In"):
+                if sign_in(email, password):
+                    st.success("Signed in successfully!")
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
+        
+        with tab2:
+            new_email = st.text_input("Email", key="new_email")
+            new_password = st.text_input("Password", type="password", key="new_password")
+            role = st.selectbox("Role", ["Client", "Doctor/Technician"])
+            if st.button("Register"):
+                if register_user(new_email, new_password, role):
+                    st.success("Registration successful. Please sign in.")
+                    st.rerun()
+                else:
+                    st.error("Registration failed. Please check the error message above and try again.")
+    else:
+        st.sidebar.title(f"Welcome, {st.session_state.user_type}")
+        if st.sidebar.button("Sign Out"):
+            sign_out()
+            st.rerun()
 
-        tab1, tab2, tab3, tab4 = st.tabs(["Health Monitor", "Doctor Network", "File Upload", "Chat"])
+        tab1, tab2, tab3, tab4 = st.tabs(["Health Monitor", "Network", "AI Analysis", "Chat"])
 
         with tab1:
-            st.header("Health Monitor")
-            if st.button("Connect Device"):
-                connect_device()
-            
-            if st.session_state.connected:
-                st.success("Device Connected")
-                if st.session_state.user_role == "client":
-                    st.metric("Current Heart Rate", f"{st.session_state.current_heart_rate} bpm")
-                    st.write(f"ECG Analysis: {st.session_state.ecg_data}")
-                    
-                    health_data = get_health_data()
-                    if health_data:
-                        df = pd.DataFrame(health_data)
-                        df['date'] = pd.to_datetime(df['date'])
-                        
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatter(x=df['date'], y=df['heart_rate'], mode='lines'))
-                        fig.update_layout(title="Heart Rate Over Time",
-                                          xaxis_title="Date",
-                                          yaxis_title="Heart Rate (bpm)")
-                        st.plotly_chart(fig)
-                else:
-                    st.write("Echo Monitor Data:")
-                    st.write(st.session_state.echo_monitor_data)
-            else:
-                st.warning("Please connect your device")
+            display_health_monitor()
 
         with tab2:
-            st.header("Doctor Network")
-            doctors = get_doctors()
-            search_query = st.text_input("Search doctors or specialties")
-            filtered_doctors = [d for d in doctors if search_query.lower() in d['name'].lower() or search_query.lower() in d['specialty'].lower()]
-            
-            for doctor in filtered_doctors:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.subheader(f"{doctor['name']} ({doctor['id']})")
-                    st.write(f"Specialty: {doctor['specialty']}")
-                    st.write(f"Rating: {doctor['rating']}")
-                    if doctor.get('distance'):
-                        st.write(f"Distance: {doctor['distance']}")
-                with col2:
-                    if st.button(f"Book Appointment", key=doctor['id']):
-                        st.success(f"Appointment request sent to {doctor['name']}")
+            display_network()
 
         with tab3:
-            st.header("File Upload")
-            file_type = st.selectbox("File Type", ["echo", "ecg", "xray", "image", "video", "report"])
-            
-            if file_type == "ecg":
-                allowed_types = ["csv", "txt"]
-            elif file_type in ["image", "xray"]:
-                allowed_types = ["jpg", "jpeg", "png"]
-            elif file_type == "video":
-                allowed_types = ["mp4", "avi", "mov"]
-            else:  # For echo and report
-                allowed_types = ["pdf", "dcm"]
-            
-            uploaded_file = st.file_uploader(f"Upload {file_type}", type=allowed_types, key=f"uploader_{file_type}")
-            
-            if uploaded_file:
-                if file_type == "ecg":
-                    analyze_ecg(uploaded_file)
-                else:
-                    file_contents = uploaded_file.read()
-                    encoded_file = base64.b64encode(file_contents).decode()
-                    
-                    response = requests.post(
-                        f"{API_URL}/analyze-file",
-                        json={"file_type": file_type, "file_name": uploaded_file.name, "file_content": encoded_file},
-                        headers={"Authorization": f"Bearer {st.session_state.token}"}
-                    )
-                    
-                    if response.status_code == 200:
-                        ai_response = response.json()
-                        st.success("File uploaded and analyzed successfully")
-                        st.write(f"AI Response: {ai_response['content']}")
-                    else:
-                        st.error("Failed to analyze file. Our team is working on implementing this functionality. Please check back later.")
-
-            st.subheader("AI Response History")
-            ai_responses = get_ai_responses()
-            for response in ai_responses:
-                with st.expander(f"{response['fileName']} - {response['timestamp']}"):
-                    st.write(response['content'])
-                    if st.session_state.user_role == "doctor" and not response['verifiedBy']:
-                        doctor_id = st.selectbox("Select verifying doctor", [d['id'] for d in doctors], key=f"doctor_select_{response['id']}")
-                        comment = st.text_input("Verification comment", key=f"comment_{response['id']}")
-                        if st.button("Verify", key=f"verify_{response['id']}"):
-                            verify_ai_response(response['id'], doctor_id, comment)
-                    elif response['verifiedBy']:
-                        st.info(f"Verified by: {response['verifiedBy']}")
+            display_file_upload()
 
         with tab4:
-            st.header("Chat")
-            messages = get_chat_messages()
-            for message in messages:
-                if message['sender'] == "You":
-                    st.text_input("You", value=message['content'], key=f"msg_{message['id']}", disabled=True)
-                else:
-                    st.text_area(message['sender'], value=message['content'], key=f"msg_{message['id']}", disabled=True)
-            
-            new_message = st.text_input("Type your message")
-            if st.button("Send"):
-                send_message(new_message)
-                st.experimental_rerun()
+            display_chat()
 
 if __name__ == "__main__":
     main()
